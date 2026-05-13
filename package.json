@@ -1,5 +1,33 @@
 {
   "name": "warble",
+  "version": "0.1.0",
   "private": true,
-  "license": "MIT"
+  "license": "MIT",
+  "type": "module",
+  "imports": {
+    "#warble": "./src/index.ts",
+    "#warble/ref": "./src/ref/index.ts"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./ref": "./dist/ref.js"
+  },
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite dev",
+    "lint": "oxlint && oxfmt --check",
+    "preview": "vite preview",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "fft.js": "^4.0.4"
+  },
+  "devDependencies": {
+    "oxfmt": "^0.49.0",
+    "oxlint": "^1.64.0",
+    "vite": "^8.0.12",
+    "vitest": "^4.1.6"
+  },
+  "packageManager": "pnpm@10.33.4",
+  "minimumReleaseAge": 10080
 }
