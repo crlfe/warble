@@ -1,0 +1,6 @@
+.plot {
+  display: block;
+  border: 1px solid #000;
+  max-width: 100%;
+  max-height: 100%;
+}
