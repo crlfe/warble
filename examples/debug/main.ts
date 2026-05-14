@@ -1,7 +1,7 @@
 import { createReferenceFFTRealToReal } from "#warble/ref";
 
 import { createSincBandPassFilter, createSincFilter } from "../../src/ref/sinc";
-import { createBar, createPlot, createSpectrogram } from "./gui";
+import { createBar, createPlot, createSpectrogram, pointerEmulateWheel } from "./gui";
 import { clamp, html } from "./util";
 
 const main = (): HTMLElement => {
@@ -71,13 +71,13 @@ const main = (): HTMLElement => {
       plot1.update(plot1Inputs, showLeft, showWidth);
     },
   }).map(([label, listener]) => {
-    const button = html("button", {}, [label]);
+    const button = html("button", { style: "padding:1em" }, [label]);
     button.addEventListener("click", listener);
     return button;
   });
 
-  const view = html("div", { style: "display:flex;flex-direction:column;gap:0.5rem" }, [
-    html("div", { style: "display:flex" }, buttons),
+  const view = html("div", { class: "vbox", style: "touch-action:none" }, [
+    html("div", { class: "hbox" }, buttons),
     spec.view,
     bar.view,
     plot0.view,
@@ -95,9 +95,9 @@ const main = (): HTMLElement => {
     let newLeft = showLeft;
     let newWidth = showWidth;
     if (Math.abs(deltaX) > Math.abs(deltaY)) {
-      newLeft += (deltaX * showWidth) / width;
+      newLeft += (deltaX / width) * showWidth;
     } else {
-      let change = (deltaY * showWidth) / width;
+      let change = (deltaY / width) * showWidth;
       newWidth = clamp(newWidth - change, minShowWidth, 1);
       newLeft += focusX * (showWidth - newWidth);
     }
@@ -117,8 +117,12 @@ const main = (): HTMLElement => {
   };
 
   view.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    // TODO: Is there a sane way to handle WheelEvent.deltaMode other than pixels?
     scrollAndZoom(event.offsetX / view.offsetWidth, event.deltaX / 4, event.deltaY / 4);
   });
+
+  pointerEmulateWheel(view, 4);
 
   queueMicrotask(() => {
     spec.update(input);
