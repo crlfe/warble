@@ -1,6 +1,6 @@
 import { createReferenceFFTRealToReal } from "#warble/ref";
 
-import { assertNotNull, html } from "./util";
+import { assertNotNull, clamp, html } from "./util";
 
 export interface PlotInput {
   data: Float32Array;
@@ -97,4 +97,60 @@ export const createBar = (width: number, height: number) => {
       g.fillRect(showLeft * width, 0, showWidth * width, height);
     },
   };
+};
+
+export const pointerEmulateWheel = (target: HTMLElement, scale = 4): void => {
+  let dragState:
+    | { pointerId: number; firstX: number; firstY: number; lastX: number; lastY: number }
+    | undefined;
+
+  const onPointerDrag = (event: PointerEvent) => {
+    if (!dragState) return;
+    event.preventDefault();
+
+    const deltaLimit = 32;
+    const deltaX = clamp(dragState.lastX - event.x, -deltaLimit, deltaLimit) * scale;
+    const deltaY = clamp(dragState.lastY - event.y, -deltaLimit, deltaLimit) * scale;
+
+    const wheelEvent = new WheelEvent("wheel", {
+      clientX: dragState.firstX,
+      clientY: dragState.firstY,
+      deltaX,
+      deltaY,
+      deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+    });
+    dragState.lastX = event.clientX;
+    dragState.lastY = event.clientY;
+    target.dispatchEvent(wheelEvent);
+  };
+
+  target.addEventListener("pointerdown", (event) => {
+    if (!(event.target instanceof HTMLCanvasElement)) {
+      // Only intercept interactions with canvas elements.
+      return;
+    }
+
+    if (dragState && target.hasPointerCapture(dragState.pointerId)) {
+      // Already have a drag in process, so ignore additional.
+      // TODO: Deliver pinch-to-zoom as ctrl+wheel.
+      return;
+    }
+
+    event.preventDefault();
+    dragState = {
+      pointerId: event.pointerId,
+      firstX: event.x,
+      firstY: event.y,
+      lastX: event.x,
+      lastY: event.y,
+    };
+    target.addEventListener("pointermove", onPointerDrag);
+    target.setPointerCapture(event.pointerId);
+  });
+
+  target.addEventListener("pointerup", (event) => {
+    target.removeEventListener("pointermove", onPointerDrag);
+    target.releasePointerCapture(event.pointerId);
+    dragState = undefined;
+  });
 };
