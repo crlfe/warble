@@ -1,5 +1,5 @@
 /**
- * Compute the value of the Blackman-Nutall window function at a single position.
+ * Compute the value of the Blackman-Nuttall window function at a single position.
  *
  * The maximum value of the window occurs when the input is 0, smoothly tapering off on both sides
  * to zero by -1 and +1.

@@ -12,12 +12,28 @@ export const sinc = (input: number): number => {
 };
 
 export interface SincFilterOptions {
-  /** The integer number of samples between the center of the filter and the edge of its window. */
+  /** The integer number of samples between the center of the filter and its edge. */
   radius: number;
 
-  /** The interval between adjacent symbols, in samples. */
+  /** The distance between adjacent symbols, in samples. */
   interval: number;
 }
+
+/**
+ * Creates a function that applies a normalized sinc filter.
+ *
+ * @param options The filter options.
+ * @returns The filter function.
+ */
+export const createSincFilter = (options: SincFilterOptions) => {
+  const { radius, interval } = options;
+
+  const coeffs = new Float32Array(radius);
+  for (let i = 0; i < radius; i++) {
+    coeffs[i] = sinc(i / interval);
+  }
+  return createSymmetricFilter(coeffs);
+};
 
 /**
  * Creates a filter function that applies a normalized sinc low pass filter. The sinc function is
@@ -26,7 +42,7 @@ export interface SincFilterOptions {
  * @param options The filter options.
  * @returns The filter function.
  */
-export const createSincFilter = (options: SincFilterOptions) => {
+export const createWindowedSincFilter = (options: SincFilterOptions) => {
   const { radius, interval } = options;
 
   const coeffs = new Float32Array(radius);
@@ -43,7 +59,9 @@ export const createSincFilter = (options: SincFilterOptions) => {
  * @param options The filter options.
  * @returns The filter function.
  */
-export const createSincBandPassFilter = (options: SincFilterOptions & { width: number }) => {
+export const createWindowedSincBandPassFilter = (
+  options: SincFilterOptions & { width: number },
+) => {
   const { radius, interval, width } = options;
 
   const highFreqInterval = interval - width / 2;
@@ -58,15 +76,4 @@ export const createSincBandPassFilter = (options: SincFilterOptions & { width: n
     coeffs[i] = (scale * highFreq - lowFreq) * window;
   }
   return createSymmetricFilter(coeffs);
-};
-
-/**
- * Creates a filter function that applies a normalized sinc root nyquist filter.
- *
- * @param options The filter options.
- * @returns The filter function.
- */
-export const createSincRootNyquistFilter = (options: SincFilterOptions) => {
-  const { radius, interval } = options;
-  return createSincFilter({ radius, interval: interval * 0.975 });
 };
