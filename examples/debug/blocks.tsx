@@ -160,7 +160,7 @@ export const SourceBlock: Component<{
     const output = new Float32Array(length);
     for (let i = 0; i < length; i++) {
       if (mode === "noise") {
-        output[i] = 2 * random() - 1;
+        output[i] = (2 * random() - 1) * amplitude;
       } else if (mode === "impulse") {
         if (i === length / 2) {
           output[i] = amplitude;
