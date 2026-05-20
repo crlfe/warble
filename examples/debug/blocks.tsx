@@ -16,8 +16,11 @@ import {
   clamp,
   createInsecurePRNG,
   createReferenceFFTRealToReal,
+  createRrcFilter,
   createSincFilter,
+  createWindowedRrcFilter,
   createWindowedSincFilter,
+  RrcFilterOptions,
 } from "#warble/ref";
 
 const [getTimeShared, setTimeShared] = createSignal({ center: 0.5, radius: 1 / 40 });
@@ -306,8 +309,12 @@ export const ViewerPane: Component<{
       const begin = Math.floor((time.center - time.radius) * length);
       const end = Math.ceil((time.center + time.radius) * length);
 
+      let min = Infinity;
+      let max = -Infinity;
       let extent = 1e-6;
       for (let i = 0; i < length; i++) {
+        min = Math.min(min, input[i]);
+        max = Math.max(max, input[i]);
         extent = Math.max(extent, Math.abs(input[i]));
       }
 
@@ -332,6 +339,14 @@ export const ViewerPane: Component<{
       }
       g.strokeStyle = "#0003";
       g.stroke();
+
+      g.font = "0.75em sans-serif";
+      g.fillStyle = "#000";
+      g.textAlign = "right";
+      g.textBaseline = "top";
+      g.fillText(`max = ${max.toFixed(3)}`, width - 2, 2);
+      g.textBaseline = "bottom";
+      g.fillText(`min = ${min.toFixed(3)}`, width - 2, height - 2);
 
       // Draw current series.
       g.beginPath();
@@ -454,18 +469,40 @@ export const FilterBlock: Component<{
   setOutput: (value: Float32Array | undefined) => void;
 }> = (props) => {
   const [state, setState] = createStore({
-    mode: "windowed sinc" as "truncated sinc" | "windowed sinc",
+    mode: "windowed sinc" as
+      | "truncated sinc"
+      | "windowed sinc"
+      | "truncated rrc"
+      | "windowed rrc"
+      | "truncated rrc twice"
+      | "windowed rrc twice",
     interval: 32,
+    rolloff: 0.5,
     radius: 256,
   });
 
-  const createFilter = () => {
-    const { mode, interval, radius } = state;
+  const filters = {
+    "truncated sinc": createSincFilter,
+    "windowed sinc": createWindowedSincFilter,
+    "truncated rrc": createRrcFilter,
+    "windowed rrc": createWindowedRrcFilter,
+    "truncated rrc twice": (options: RrcFilterOptions) => {
+      const filter = createRrcFilter(options);
+      return (input: Float32Array, output?: Float32Array<ArrayBuffer>) => {
+        return filter(filter(input), output);
+      };
+    },
+    "windowed rrc twice": (options: RrcFilterOptions) => {
+      const filter = createWindowedRrcFilter(options);
+      return (input: Float32Array, output?: Float32Array<ArrayBuffer>) => {
+        return filter(filter(input), output);
+      };
+    },
+  };
 
-    return {
-      "truncated sinc": createSincFilter,
-      "windowed sinc": createWindowedSincFilter,
-    }[mode]?.({ interval, radius });
+  const createFilter = () => {
+    const { mode, interval, radius, rolloff } = state;
+    return filters[mode]?.({ interval, rolloff, radius });
   };
 
   const output = createMemo(() => {
@@ -492,7 +529,14 @@ export const FilterBlock: Component<{
           <label>
             {"Apply "}
             <Select
-              options={["truncated sinc", "windowed sinc"]}
+              options={[
+                "truncated sinc",
+                "windowed sinc",
+                "truncated rrc",
+                "windowed rrc",
+                "truncated rrc twice",
+                "windowed rrc twice",
+              ]}
               getValue={() => state.mode}
               setValue={(v) => setState("mode", v)}
             />
@@ -509,6 +553,20 @@ export const FilterBlock: Component<{
               required
             />
           </label>
+          {state.mode.match(/\brrc\b/) && (
+            <label>
+              {", rolloff"}{" "}
+              <input
+                onChange={setValueAsNumberWhenValid(setState, "rolloff")}
+                type="number"
+                value={state.rolloff}
+                min="0"
+                max="1"
+                step="0.05"
+                required
+              />
+            </label>
+          )}
           <label>
             {"and radius "}
             <input
@@ -523,7 +581,7 @@ export const FilterBlock: Component<{
           </label>
         </form>
         <ViewerPane
-          inputs={{ output, filter: () => createFilter()?.coeffs }}
+          inputs={{ output, filter: () => (createFilter() as any)?.coeffs }}
           interval={state.interval}
         />
       </div>
