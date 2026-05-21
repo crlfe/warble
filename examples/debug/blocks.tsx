@@ -24,6 +24,7 @@ import {
 } from "#warble/ref";
 
 const [getTimeShared, setTimeShared] = createSignal({ center: 0.5, radius: 1 / 40 });
+const [getFreqShared, setFreqShared] = createSignal({ center: 0.5, radius: 0.5 });
 
 const setValueAsNumberWhenValid =
   <T, Args extends readonly unknown[]>(store: SetStoreFunction<T>, ...args: Args) =>
@@ -310,10 +311,10 @@ export const ViewerPane: Component<{
     const yPad = 6;
 
     if (mode === "amplitude") {
-      const time = getTimeShared();
+      const scroll = getTimeShared();
 
-      const begin = Math.floor((time.center - time.radius) * length);
-      const end = Math.ceil((time.center + time.radius) * length);
+      const begin = Math.floor((scroll.center - scroll.radius) * length);
+      const end = Math.ceil((scroll.center + scroll.radius) * length);
 
       let min = Infinity;
       let max = -Infinity;
@@ -369,18 +370,25 @@ export const ViewerPane: Component<{
       g.stroke();
 
       g.fillStyle = "#00F";
-      g.fillRect((time.center - time.radius) * width, height - 3, 2 * time.radius * width, 3);
+      g.fillRect((scroll.center - scroll.radius) * width, height - 3, 2 * scroll.radius * width, 3);
     } else if (mode === "frequency") {
+      const scroll = getFreqShared();
+
       // TODO: Support non-power-of-two lengths and reuse the FFT.
       const freq = createReferenceFFTRealToReal(length)(input);
 
       const getXForFreqIndex = (index: number) => {
+        let x;
         if (getXScale() === "log") {
           const base = 64;
-          return (Math.log2(1 + ((base - 1) * index) / freq.length) / Math.log2(base)) * width;
+          x = (Math.log2(1 + ((base - 1) * index) / freq.length) / Math.log2(base)) * width;
         } else {
-          return (index / freq.length) * width;
+          x = (index / freq.length) * width;
         }
+
+        x = (x + (scroll.radius - scroll.center) * width) / (2 * scroll.radius);
+
+        return x;
       };
 
       let max = 0;
@@ -419,16 +427,15 @@ export const ViewerPane: Component<{
         const x = getXForFreqIndex(i);
         const y = (1 - freq[i] / max) * (height - 12) + 6;
 
-        if (freq[i] > 1000) {
-          console.log(i, x, freq[i], length, freq.length);
-        }
-
         if (!i) g.moveTo(x, y);
         else g.lineTo(x, y);
       }
 
       g.strokeStyle = "#000";
       g.stroke();
+
+      g.fillStyle = "#00F";
+      g.fillRect((scroll.center - scroll.radius) * width, height - 3, 2 * scroll.radius * width, 3);
     } else {
       printError("internal error");
       return;
@@ -438,34 +445,34 @@ export const ViewerPane: Component<{
   const onWheel = (event: WheelEvent & { currentTarget: HTMLElement }) => {
     // TODO: Handle non-pixel-scale events.
 
-    const time = getTimeShared();
     const mode = getMode();
 
-    if (mode === "amplitude") {
-      if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
-        event.preventDefault();
+    const scroll = mode === "amplitude" ? getTimeShared() : getFreqShared();
 
-        let dx = clamp(event.deltaX, -256, 256);
-        dx *= time.radius / 1024;
+    if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
+      event.preventDefault();
 
-        const center = clamp(time.center + dx, time.radius, 1 - time.radius);
-        setTimeShared({ center, radius: time.radius });
-      } else {
-        event.preventDefault();
+      let dx = clamp(event.deltaX, -256, 256);
+      dx *= scroll.radius / 1024;
 
-        let dy = clamp(-event.deltaY, -256, 256);
-        dy *= time.radius / 2048;
+      const center = clamp(scroll.center + dx, scroll.radius, 1 - scroll.radius);
 
-        // TODO: Scale minimum with actual number of samples.
-        const radius = clamp(time.radius + dy, 0.001, 0.5);
+      (mode === "amplitude" ? setTimeShared : setFreqShared)({ center, radius: scroll.radius });
+    } else {
+      event.preventDefault();
 
-        let center = time.center;
-        const eventX = event.offsetX / event.currentTarget.offsetWidth;
-        center += (time.radius - radius) * (2 * eventX - 1);
-        center = clamp(center, radius, 1 - radius);
+      let dy = clamp(-event.deltaY, -256, 256);
+      dy *= scroll.radius / 2048;
 
-        setTimeShared({ center, radius });
-      }
+      // TODO: Scale minimum with actual number of samples.
+      const radius = clamp(scroll.radius + dy, 0.001, 0.5);
+
+      let center = scroll.center;
+      const eventX = event.offsetX / event.currentTarget.offsetWidth;
+      center += (scroll.radius - radius) * (2 * eventX - 1);
+      center = clamp(center, radius, 1 - radius);
+
+      (mode === "amplitude" ? setTimeShared : setFreqShared)({ center, radius });
     }
   };
 
