@@ -150,7 +150,7 @@ export const SourceBlock: Component<{
   setOutput: (output: Float32Array | undefined) => void;
 }> = (props) => {
   const [state, setState] = createStore({
-    mode: "symbols" as "noise" | "impulse" | "symbols",
+    mode: "symbols" as "sine" | "noise" | "impulse" | "symbols",
     amplitude: 1.0,
     interval: 32,
   });
@@ -162,7 +162,9 @@ export const SourceBlock: Component<{
     const random = createInsecurePRNG(12345);
     const output = new Float32Array(length);
     for (let i = 0; i < length; i++) {
-      if (mode === "noise") {
+      if (mode === "sine") {
+        output[i] = Math.sin((Math.PI * i) / interval) * amplitude;
+      } else if (mode === "noise") {
         output[i] = (2 * random() - 1) * amplitude;
       } else if (mode === "impulse") {
         if (i === length / 2) {
@@ -188,7 +190,7 @@ export const SourceBlock: Component<{
         Source
         <span class="extra">
           : Generate {state.mode} with amplitude {state.amplitude.toFixed(1)}
-          {state.mode === "symbols" && (
+          {["sine", "symbols"].includes(state.mode) && (
             <>
               {" and interval "}
               {state.interval}
@@ -201,7 +203,7 @@ export const SourceBlock: Component<{
           <label>
             {"Generate "}
             <Select
-              options={["noise", "impulse", "symbols"]}
+              options={["sine", "noise", "impulse", "symbols"]}
               getValue={() => state.mode}
               setValue={(v) => setState("mode", v)}
             />
@@ -218,7 +220,7 @@ export const SourceBlock: Component<{
               required
             />
           </label>
-          {state.mode === "symbols" && (
+          {["sine", "symbols"].includes(state.mode) && (
             <label>
               {"and interval "}
               <input
@@ -233,7 +235,10 @@ export const SourceBlock: Component<{
             </label>
           )}
         </form>
-        <ViewerPane inputs={{ output }} interval={state.interval} />
+        <ViewerPane
+          inputs={{ output }}
+          interval={["sine", "symbols"].includes(state.mode) ? state.interval : undefined}
+        />
       </div>
     </details>
   );
@@ -247,6 +252,7 @@ export const ViewerPane: Component<{
   const [getShowing, setShowing] = createSignal(true);
   const [getMode, setMode] = createSignal<"amplitude" | "frequency">("amplitude");
   const [getInputName, setInputName] = createSignal<string>();
+  const [getXScale, setXScale] = createSignal<"log" | "linear">("log");
   const [getCanvasInfo, setCanvas] = createCanvas2DInfo();
 
   let lastCanvas: HTMLCanvasElement | undefined;
@@ -332,14 +338,15 @@ export const ViewerPane: Component<{
         for (let i = 0; i < length; i += interval) {
           if (i >= begin && i <= end) {
             const x = ((i - begin) / (end - 1 - begin)) * width;
-            g.moveTo(x, yPad);
-            g.lineTo(x, height - yPad);
+            g.moveTo(x, 0);
+            g.lineTo(x, height);
           }
         }
       }
       g.strokeStyle = "#0003";
       g.stroke();
 
+      // Show the maximum and minimum values.
       g.font = "0.75em sans-serif";
       g.fillStyle = "#000";
       g.textAlign = "right";
@@ -367,15 +374,54 @@ export const ViewerPane: Component<{
       // TODO: Support non-power-of-two lengths and reuse the FFT.
       const freq = createReferenceFFTRealToReal(length)(input);
 
+      const getXForFreqIndex = (index: number) => {
+        if (getXScale() === "log") {
+          const base = 64;
+          return (Math.log2(1 + ((base - 1) * index) / freq.length) / Math.log2(base)) * width;
+        } else {
+          return (index / freq.length) * width;
+        }
+      };
+
       let max = 0;
       for (let i = 0; i < freq.length; i++) {
         max = Math.max(max, freq[i]);
       }
 
+      // Draw marker and text for the interval and some harmonics.
+      g.font = "0.75em sans-serif";
+      g.fillStyle = "#000";
+      g.textAlign = "left";
+      g.textBaseline = "top";
+      const interval = props.interval;
+      if (interval) {
+        g.beginPath();
+        for (const t of [0.5, 1, 1.5, 2, 4, 8]) {
+          const h = Math.round(interval * t);
+          const x = getXForFreqIndex(freq.length / h);
+          g.moveTo(x, 0);
+          g.lineTo(x, height);
+
+          // TODO: Skip labels when the lines are too close together.
+          g.fillText(`${h}`, x + 2, 2);
+        }
+        g.strokeStyle = "#0008";
+        g.stroke();
+      }
+
+      // Show the maximum value and X scale.
+      g.textAlign = "right";
+      g.fillText(`max = ${max.toFixed(3)}`, width - 2, 2);
+
+      // Draw current series.
       g.beginPath();
       for (let i = 0; i < freq.length; i++) {
-        const x = Math.log2(1 + i / freq.length) * width;
+        const x = getXForFreqIndex(i);
         const y = (1 - freq[i] / max) * (height - 12) + 6;
+
+        if (freq[i] > 1000) {
+          console.log(i, x, freq[i], length, freq.length);
+        }
 
         if (!i) g.moveTo(x, y);
         else g.lineTo(x, y);
@@ -452,6 +498,16 @@ export const ViewerPane: Component<{
           />
         </label>
         {inputSelector()}
+        {getMode() === "frequency" && (
+          <label>
+            {"with X "}
+            <Select
+              options={["linear", "log"]}
+              getValue={() => getXScale()}
+              setValue={(v) => setXScale(v)}
+            />
+          </label>
+        )}
       </form>
       {getShowing() && (
         <canvas
