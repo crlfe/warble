@@ -16,11 +16,15 @@ import {
   clamp,
   createInsecurePRNG,
   createReferenceFFTRealToReal,
+  createRrcFilter,
   createSincFilter,
+  createWindowedRrcFilter,
   createWindowedSincFilter,
+  RrcFilterOptions,
 } from "#warble/ref";
 
 const [getTimeShared, setTimeShared] = createSignal({ center: 0.5, radius: 1 / 40 });
+const [getFreqShared, setFreqShared] = createSignal({ center: 0.5, radius: 0.5 });
 
 const setValueAsNumberWhenValid =
   <T, Args extends readonly unknown[]>(store: SetStoreFunction<T>, ...args: Args) =>
@@ -147,7 +151,7 @@ export const SourceBlock: Component<{
   setOutput: (output: Float32Array | undefined) => void;
 }> = (props) => {
   const [state, setState] = createStore({
-    mode: "symbols" as "noise" | "impulse" | "symbols",
+    mode: "symbols" as "sine" | "noise" | "impulse" | "symbols",
     amplitude: 1.0,
     interval: 32,
   });
@@ -159,8 +163,10 @@ export const SourceBlock: Component<{
     const random = createInsecurePRNG(12345);
     const output = new Float32Array(length);
     for (let i = 0; i < length; i++) {
-      if (mode === "noise") {
-        output[i] = 2 * random() - 1;
+      if (mode === "sine") {
+        output[i] = Math.sin((Math.PI * i) / interval) * amplitude;
+      } else if (mode === "noise") {
+        output[i] = (2 * random() - 1) * amplitude;
       } else if (mode === "impulse") {
         if (i === length / 2) {
           output[i] = amplitude;
@@ -185,7 +191,7 @@ export const SourceBlock: Component<{
         Source
         <span class="extra">
           : Generate {state.mode} with amplitude {state.amplitude.toFixed(1)}
-          {state.mode === "symbols" && (
+          {["sine", "symbols"].includes(state.mode) && (
             <>
               {" and interval "}
               {state.interval}
@@ -198,7 +204,7 @@ export const SourceBlock: Component<{
           <label>
             {"Generate "}
             <Select
-              options={["noise", "impulse", "symbols"]}
+              options={["sine", "noise", "impulse", "symbols"]}
               getValue={() => state.mode}
               setValue={(v) => setState("mode", v)}
             />
@@ -215,7 +221,7 @@ export const SourceBlock: Component<{
               required
             />
           </label>
-          {state.mode === "symbols" && (
+          {["sine", "symbols"].includes(state.mode) && (
             <label>
               {"and interval "}
               <input
@@ -230,7 +236,10 @@ export const SourceBlock: Component<{
             </label>
           )}
         </form>
-        <ViewerPane inputs={{ output }} interval={state.interval} />
+        <ViewerPane
+          inputs={{ output }}
+          interval={["sine", "symbols"].includes(state.mode) ? state.interval : undefined}
+        />
       </div>
     </details>
   );
@@ -244,6 +253,7 @@ export const ViewerPane: Component<{
   const [getShowing, setShowing] = createSignal(true);
   const [getMode, setMode] = createSignal<"amplitude" | "frequency">("amplitude");
   const [getInputName, setInputName] = createSignal<string>();
+  const [getXScale, setXScale] = createSignal<"log" | "linear">("log");
   const [getCanvasInfo, setCanvas] = createCanvas2DInfo();
 
   let lastCanvas: HTMLCanvasElement | undefined;
@@ -301,13 +311,17 @@ export const ViewerPane: Component<{
     const yPad = 6;
 
     if (mode === "amplitude") {
-      const time = getTimeShared();
+      const scroll = getTimeShared();
 
-      const begin = Math.floor((time.center - time.radius) * length);
-      const end = Math.ceil((time.center + time.radius) * length);
+      const begin = Math.floor((scroll.center - scroll.radius) * length);
+      const end = Math.ceil((scroll.center + scroll.radius) * length);
 
+      let min = Infinity;
+      let max = -Infinity;
       let extent = 1e-6;
       for (let i = 0; i < length; i++) {
+        min = Math.min(min, input[i]);
+        max = Math.max(max, input[i]);
         extent = Math.max(extent, Math.abs(input[i]));
       }
 
@@ -325,13 +339,22 @@ export const ViewerPane: Component<{
         for (let i = 0; i < length; i += interval) {
           if (i >= begin && i <= end) {
             const x = ((i - begin) / (end - 1 - begin)) * width;
-            g.moveTo(x, yPad);
-            g.lineTo(x, height - yPad);
+            g.moveTo(x, 0);
+            g.lineTo(x, height);
           }
         }
       }
       g.strokeStyle = "#0003";
       g.stroke();
+
+      // Show the maximum and minimum values.
+      g.font = "0.75em sans-serif";
+      g.fillStyle = "#000";
+      g.textAlign = "right";
+      g.textBaseline = "top";
+      g.fillText(`max = ${max.toFixed(3)}`, width - 2, 2);
+      g.textBaseline = "bottom";
+      g.fillText(`min = ${min.toFixed(3)}`, width - 2, height - 2);
 
       // Draw current series.
       g.beginPath();
@@ -347,19 +370,61 @@ export const ViewerPane: Component<{
       g.stroke();
 
       g.fillStyle = "#00F";
-      g.fillRect((time.center - time.radius) * width, height - 3, 2 * time.radius * width, 3);
+      g.fillRect((scroll.center - scroll.radius) * width, height - 3, 2 * scroll.radius * width, 3);
     } else if (mode === "frequency") {
+      const scroll = getFreqShared();
+
       // TODO: Support non-power-of-two lengths and reuse the FFT.
       const freq = createReferenceFFTRealToReal(length)(input);
+
+      const getXForFreqIndex = (index: number) => {
+        let x;
+        if (getXScale() === "log") {
+          const base = 64;
+          x = (Math.log2(1 + ((base - 1) * index) / freq.length) / Math.log2(base)) * width;
+        } else {
+          x = (index / freq.length) * width;
+        }
+
+        x = (x + (scroll.radius - scroll.center) * width) / (2 * scroll.radius);
+
+        return x;
+      };
 
       let max = 0;
       for (let i = 0; i < freq.length; i++) {
         max = Math.max(max, freq[i]);
       }
 
+      // Draw marker and text for the interval and some harmonics.
+      g.font = "0.75em sans-serif";
+      g.fillStyle = "#000";
+      g.textAlign = "left";
+      g.textBaseline = "top";
+      const interval = props.interval;
+      if (interval) {
+        g.beginPath();
+        for (const t of [0.5, 1, 1.5, 2, 4, 8]) {
+          const h = Math.round(interval * t);
+          const x = getXForFreqIndex(freq.length / h);
+          g.moveTo(x, 0);
+          g.lineTo(x, height);
+
+          // TODO: Skip labels when the lines are too close together.
+          g.fillText(`${h}`, x + 2, 2);
+        }
+        g.strokeStyle = "#0008";
+        g.stroke();
+      }
+
+      // Show the maximum value and X scale.
+      g.textAlign = "right";
+      g.fillText(`max = ${max.toFixed(3)}`, width - 2, 2);
+
+      // Draw current series.
       g.beginPath();
       for (let i = 0; i < freq.length; i++) {
-        const x = Math.log2(1 + i / freq.length) * width;
+        const x = getXForFreqIndex(i);
         const y = (1 - freq[i] / max) * (height - 12) + 6;
 
         if (!i) g.moveTo(x, y);
@@ -368,6 +433,9 @@ export const ViewerPane: Component<{
 
       g.strokeStyle = "#000";
       g.stroke();
+
+      g.fillStyle = "#00F";
+      g.fillRect((scroll.center - scroll.radius) * width, height - 3, 2 * scroll.radius * width, 3);
     } else {
       printError("internal error");
       return;
@@ -377,34 +445,34 @@ export const ViewerPane: Component<{
   const onWheel = (event: WheelEvent & { currentTarget: HTMLElement }) => {
     // TODO: Handle non-pixel-scale events.
 
-    const time = getTimeShared();
     const mode = getMode();
 
-    if (mode === "amplitude") {
-      if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
-        event.preventDefault();
+    const scroll = mode === "amplitude" ? getTimeShared() : getFreqShared();
 
-        let dx = clamp(event.deltaX, -256, 256);
-        dx *= time.radius / 1024;
+    if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
+      event.preventDefault();
 
-        const center = clamp(time.center + dx, time.radius, 1 - time.radius);
-        setTimeShared({ center, radius: time.radius });
-      } else {
-        event.preventDefault();
+      let dx = clamp(event.deltaX, -256, 256);
+      dx *= scroll.radius / 1024;
 
-        let dy = clamp(-event.deltaY, -256, 256);
-        dy *= time.radius / 2048;
+      const center = clamp(scroll.center + dx, scroll.radius, 1 - scroll.radius);
 
-        // TODO: Scale minimum with actual number of samples.
-        const radius = clamp(time.radius + dy, 0.001, 0.5);
+      (mode === "amplitude" ? setTimeShared : setFreqShared)({ center, radius: scroll.radius });
+    } else {
+      event.preventDefault();
 
-        let center = time.center;
-        const eventX = event.offsetX / event.currentTarget.offsetWidth;
-        center += (time.radius - radius) * (2 * eventX - 1);
-        center = clamp(center, radius, 1 - radius);
+      let dy = clamp(-event.deltaY, -256, 256);
+      dy *= scroll.radius / 2048;
 
-        setTimeShared({ center, radius });
-      }
+      // TODO: Scale minimum with actual number of samples.
+      const radius = clamp(scroll.radius + dy, 0.001, 0.5);
+
+      let center = scroll.center;
+      const eventX = event.offsetX / event.currentTarget.offsetWidth;
+      center += (scroll.radius - radius) * (2 * eventX - 1);
+      center = clamp(center, radius, 1 - radius);
+
+      (mode === "amplitude" ? setTimeShared : setFreqShared)({ center, radius });
     }
   };
 
@@ -437,6 +505,16 @@ export const ViewerPane: Component<{
           />
         </label>
         {inputSelector()}
+        {getMode() === "frequency" && (
+          <label>
+            {"with X "}
+            <Select
+              options={["linear", "log"]}
+              getValue={() => getXScale()}
+              setValue={(v) => setXScale(v)}
+            />
+          </label>
+        )}
       </form>
       {getShowing() && (
         <canvas
@@ -454,18 +532,40 @@ export const FilterBlock: Component<{
   setOutput: (value: Float32Array | undefined) => void;
 }> = (props) => {
   const [state, setState] = createStore({
-    mode: "windowed sinc" as "truncated sinc" | "windowed sinc",
+    mode: "windowed sinc" as
+      | "truncated sinc"
+      | "windowed sinc"
+      | "truncated rrc"
+      | "windowed rrc"
+      | "truncated rrc twice"
+      | "windowed rrc twice",
     interval: 32,
+    rolloff: 0.5,
     radius: 256,
   });
 
-  const createFilter = () => {
-    const { mode, interval, radius } = state;
+  const filters = {
+    "truncated sinc": createSincFilter,
+    "windowed sinc": createWindowedSincFilter,
+    "truncated rrc": createRrcFilter,
+    "windowed rrc": createWindowedRrcFilter,
+    "truncated rrc twice": (options: RrcFilterOptions) => {
+      const filter = createRrcFilter(options);
+      return (input: Float32Array, output?: Float32Array<ArrayBuffer>) => {
+        return filter(filter(input), output);
+      };
+    },
+    "windowed rrc twice": (options: RrcFilterOptions) => {
+      const filter = createWindowedRrcFilter(options);
+      return (input: Float32Array, output?: Float32Array<ArrayBuffer>) => {
+        return filter(filter(input), output);
+      };
+    },
+  };
 
-    return {
-      "truncated sinc": createSincFilter,
-      "windowed sinc": createWindowedSincFilter,
-    }[mode]?.({ interval, radius });
+  const createFilter = () => {
+    const { mode, interval, radius, rolloff } = state;
+    return filters[mode]?.({ interval, rolloff, radius });
   };
 
   const output = createMemo(() => {
@@ -492,7 +592,14 @@ export const FilterBlock: Component<{
           <label>
             {"Apply "}
             <Select
-              options={["truncated sinc", "windowed sinc"]}
+              options={[
+                "truncated sinc",
+                "windowed sinc",
+                "truncated rrc",
+                "windowed rrc",
+                "truncated rrc twice",
+                "windowed rrc twice",
+              ]}
               getValue={() => state.mode}
               setValue={(v) => setState("mode", v)}
             />
@@ -509,6 +616,20 @@ export const FilterBlock: Component<{
               required
             />
           </label>
+          {state.mode.match(/\brrc\b/) && (
+            <label>
+              {", rolloff"}{" "}
+              <input
+                onChange={setValueAsNumberWhenValid(setState, "rolloff")}
+                type="number"
+                value={state.rolloff}
+                min="0"
+                max="1"
+                step="0.05"
+                required
+              />
+            </label>
+          )}
           <label>
             {"and radius "}
             <input
@@ -523,7 +644,7 @@ export const FilterBlock: Component<{
           </label>
         </form>
         <ViewerPane
-          inputs={{ output, filter: () => createFilter()?.coeffs }}
+          inputs={{ output, filter: () => (createFilter() as any)?.coeffs }}
           interval={state.interval}
         />
       </div>
