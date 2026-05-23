@@ -5,8 +5,8 @@ birdsong. My goal is to offer atmospheric, cheery, and unintrusive communication
 across different browsers and devices.
 
 The first proof of concept is currently being cleaned up and refactored for an experimental release.
-You are welcome to watch for changes in the `dev` branch, but this is all a long way from being
-useful in a real application.
+You are welcome to watch for changes, but be aware that this is all a long way from being useful in
+a real application.
 
 ## Questions
 
@@ -60,17 +60,32 @@ Audio watermarking is another subset of audio steganography, focused on hiding s
 codes that survive edits to the sound. Their focus on amazing durability and error correction makes
 watermarks even lower bandwidth and higher complexity than general audio steganography.
 
+**Does this project use AI?**
+
+Many artists, creators, and technologists have expressed discomfort with the current explosion of AI
+tools, often citing the non-consensual gathering of training data, environmental impact of massive
+data centers, or the social effects of devaluing human creativity.
+
+I want Warble to grow into a collection of tools that are usable by anyone. I especially want to
+find out what creative artistic people will do when their digital data transfers can be audible, and
+fun, and endlessly customizable. So, to leave the door open for everyone, regardless of whether they
+personally accept AI tools, there is only one option:
+
+This project is entirely designed, coded, code-reviewed, and documented by humans. One human, for
+the moment. When things are ready for additional contributors I expect the Code of Conduct to have
+similar rules.
+
 ## Protocol Roadmap
 
-- Short message broadcast: Broadcast short text messages to listeners.
+- Short message broadcast: One messages to many listeners, acting like a beacon or an audio QR code.
 
 - Short message exchange: Truly serverless WebRTC signaling.
 
-- Collision detection: Adaptive backoff and retry.
+- Dynamic volume levels: Automatically adjust the volume depending on noise levels.
 
-- Forward error correction: Reduce retries in noisy spaces.
+- Collision detection: Detect simultaneous transmissions and try again.
 
-- Dynamic volume levels: Reduce annoyance in quiet spaces.
+- Forward error correction: Redundancy within the transmission to reduce errors in noisy spaces.
 
 - Streaming message exchange: Linux tun/tap for practical
   [Transmission of IP Datagrams on Avian Carriers](https://www.rfc-editor.org/rfc/rfc1149).
