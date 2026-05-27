@@ -1,15 +1,15 @@
 import {
-  Accessor,
+  type Accessor,
   type Component,
   createEffect,
   createMemo,
   createSelector,
   createSignal,
-  JSX,
+  type JSX,
   onCleanup,
   type Setter,
 } from "solid-js";
-import { createStore, StoreReturn, type SetStoreFunction } from "solid-js/store";
+import { createStore, type SetStoreFunction, type StoreReturn } from "solid-js/store";
 
 import {
   assertNotNull,
@@ -20,7 +20,7 @@ import {
   createSincFilter,
   createWindowedRrcFilter,
   createWindowedSincFilter,
-  RrcFilterOptions,
+  type RrcFilterOptions,
 } from "#warble/ref";
 
 const [getTimeShared, setTimeShared] = createSignal({ center: 0.5, radius: 1 / 40 });
