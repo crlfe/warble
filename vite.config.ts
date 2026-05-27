@@ -1,5 +1,3 @@
-/// <reference types="vitest/config" />
-
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 
@@ -9,7 +7,7 @@ export default defineConfig({
   build: {
     lib: undefined,
     rolldownOptions: {
-      input: ["index.html", "examples/debug/index.html"],
+      input: ["index.html", "examples/debug/index.html", "examples/harris-v0/index.html"],
       output: {
         assetFileNames: "a/[hash].[ext]",
         chunkFileNames: "a/[hash].js",
@@ -18,7 +16,4 @@ export default defineConfig({
     },
   },
   plugins: [solid()],
-  test: {
-    environment: "node",
-  },
 });

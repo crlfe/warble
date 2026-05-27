@@ -1,5 +1,5 @@
 import { createSymmetricFilter } from "./filters";
-import { blackmanNuttallWindow } from "./funcs";
+import { nuttallWindow } from "./funcs";
 
 /** Compute the value of the square-root raised cosine function at a single position. */
 export const rrc = (position: number, interval: number, rolloff: number): number => {
@@ -44,7 +44,7 @@ export const createWindowedRrcFilter = (options: RrcFilterOptions) => {
 
   const coeffs = new Float32Array(radius);
   for (let i = 0; i < radius; i++) {
-    const window = blackmanNuttallWindow(i / radius);
+    const window = nuttallWindow(i / radius);
     coeffs[i] = rrc(i, interval, rolloff) * window;
   }
   return createSymmetricFilter(coeffs);

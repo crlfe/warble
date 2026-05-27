@@ -1,5 +1,5 @@
 import { createSymmetricFilter } from "./filters";
-import { blackmanNuttallWindow } from "./funcs";
+import { nuttallWindow } from "./funcs";
 
 /**
  * Compute the value of the normalized sinc function at a single position.
@@ -47,7 +47,7 @@ export const createWindowedSincFilter = (options: SincFilterOptions) => {
 
   const coeffs = new Float32Array(radius);
   for (let i = 0; i < radius; i++) {
-    const window = blackmanNuttallWindow(i / radius);
+    const window = nuttallWindow(i / radius);
     coeffs[i] = sinc(i / interval) * window;
   }
   return createSymmetricFilter(coeffs);
@@ -70,7 +70,7 @@ export const createWindowedSincBandPassFilter = (
 
   const coeffs = new Float32Array(radius);
   for (let i = 0; i < radius; i++) {
-    const window = blackmanNuttallWindow(i / radius);
+    const window = nuttallWindow(i / radius);
     const highFreq = sinc(i / highFreqInterval);
     const lowFreq = sinc(i / lowFreqInterval);
     coeffs[i] = (scale * highFreq - lowFreq) * window;

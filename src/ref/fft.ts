@@ -1,6 +1,6 @@
 import FFT from "fft.js";
 
-import { blackmanNuttallWindow } from "./funcs";
+import { nuttallWindow } from "./funcs";
 
 export const createReferenceFFTRealToReal = (length: number) => {
   const fft = new FFT(length);
@@ -9,7 +9,7 @@ export const createReferenceFFTRealToReal = (length: number) => {
 
   return (input: Float32Array, output?: Float32Array<ArrayBuffer>): Float32Array<ArrayBuffer> => {
     for (let i = 0; i < length; i++) {
-      windowedInput[i] = input[i] * blackmanNuttallWindow((2 * i) / length - 1);
+      windowedInput[i] = input[i] * nuttallWindow((2 * i) / length - 1);
     }
     fft.realTransform(complexOutput, windowedInput);
 

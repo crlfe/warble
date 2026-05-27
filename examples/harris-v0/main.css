@@ -1,0 +1,72 @@
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: sans-serif;
+  line-height: 1.5em;
+}
+
+body {
+  margin: auto;
+  max-width: 40em;
+}
+
+button,
+input,
+textarea {
+  font: 100% sans-serif;
+  padding: 0.5em;
+  resize: none;
+}
+
+details {
+  padding: 0.5em;
+  border: 1px solid #000;
+}
+
+details:not(:open) {
+  padding-bottom: 0;
+}
+
+details > summary {
+  background-color: #ddf;
+
+  margin: -0.5em -0.5em 0 -0.5em;
+  padding: 0.25em 0.5em;
+  height: 2em;
+}
+
+details:open > summary {
+  border-bottom: 1px solid #000;
+  margin-bottom: 0.5em;
+}
+
+input:invalid {
+  outline: 2px solid #f00;
+}
+
+.options-grid {
+  display: grid;
+  grid: auto-flow / max-content 1fr max-content;
+  gap: 0.5em;
+}
+
+.options-grid > label {
+  grid-column: span 3;
+  display: grid;
+  grid: subgrid / subgrid;
+  align-items: center;
+}
+
+.hFlow,
+.vFlow {
+  display: flex;
+  gap: 0.5em;
+  place-content: stretch;
+  place-items: stretch;
+}
+
+.vFlow {
+  flex-direction: column;
+}

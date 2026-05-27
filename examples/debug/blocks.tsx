@@ -1,20 +1,10 @@
-import {
-  type Accessor,
-  type Component,
-  createEffect,
-  createMemo,
-  createSelector,
-  createSignal,
-  type JSX,
-  onCleanup,
-  type Setter,
-} from "solid-js";
+import { type Component, createEffect, createMemo, createSignal, type JSX } from "solid-js";
 import { createStore, type SetStoreFunction, type StoreReturn } from "solid-js/store";
 
 import {
-  assertNotNull,
   clamp,
   createInsecurePRNG,
+  createLindebergTimeCausalFilter,
   createReferenceFFTRealToReal,
   createRrcFilter,
   createSincFilter,
@@ -22,6 +12,8 @@ import {
   createWindowedSincFilter,
   type RrcFilterOptions,
 } from "#warble/ref";
+
+import { createCanvas2DInfo, Select } from "../common/gui";
 
 const [getTimeShared, setTimeShared] = createSignal({ center: 0.5, radius: 1 / 40 });
 const [getFreqShared, setFreqShared] = createSignal({ center: 0.5, radius: 0.5 });
@@ -33,68 +25,6 @@ const setValueAsNumberWhenValid =
       (store as any)(...args, event.target.valueAsNumber);
     }
   };
-
-interface Canvas2DInfo {
-  canvas: HTMLCanvasElement;
-  g: CanvasRenderingContext2D;
-  width: number;
-  height: number;
-}
-
-const createCanvas2DInfo = (): [
-  Accessor<Canvas2DInfo | undefined>,
-  Setter<HTMLCanvasElement | undefined>,
-] => {
-  const [getInfo, setInfo] = createSignal<Canvas2DInfo>();
-  const [getCanvas, setCanvas] = createSignal<HTMLCanvasElement>();
-
-  createEffect(() => {
-    const canvas = getCanvas();
-    if (!canvas) return;
-
-    const g = assertNotNull(canvas.getContext("2d"));
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.target === canvas && entry.contentBoxSize[0]) {
-          const box = entry.contentBoxSize[0];
-          setInfo({ canvas, g, width: box.inlineSize, height: box.blockSize });
-        }
-      }
-    });
-
-    observer.observe(canvas);
-    onCleanup(() => observer.unobserve(canvas));
-  });
-
-  return [getInfo, setCanvas];
-};
-
-const Select = <K extends string>(props: {
-  options: K[];
-  getValue: Accessor<K | undefined>;
-  setValue: (key: K) => void;
-}): JSX.Element => {
-  const { options, getValue, setValue, ...others } = props;
-  const selector = createSelector(getValue);
-
-  return (
-    <select
-      {...others}
-      onInput={(event) => {
-        if (event.target.validity.valid) {
-          // TODO: Do we need to double-check membership in the key list?
-          setValue(event.target.value as K);
-        }
-      }}
-    >
-      {options.map((key) => (
-        <option value={key} selected={selector(key)}>
-          {key}
-        </option>
-      ))}
-    </select>
-  );
-};
 
 export const pointerEmulateWheel = (target: HTMLElement, scale = 4): void => {
   let dragState:
@@ -148,7 +78,7 @@ export const pointerEmulateWheel = (target: HTMLElement, scale = 4): void => {
 };
 
 export interface SourceBlockState {
-  mode: "sine" | "noise" | "impulse" | "symbols";
+  mode: "sine" | "noise" | "impulse" | "symbols" | "psk";
   amplitude: number;
   interval: number;
   viewer: ViewerPaneState;
@@ -164,9 +94,11 @@ export const SourceBlock: Component<{
     const length = 16 * 1024;
     const random = createInsecurePRNG(12345);
     const output = new Float32Array(length);
+
+    let phase = 0;
     for (let i = 0; i < length; i++) {
       if (mode === "sine") {
-        output[i] = Math.sin((Math.PI * i) / interval) * amplitude;
+        output[i] = Math.sin((2 * Math.PI * i) / interval) * amplitude;
       } else if (mode === "noise") {
         output[i] = (2 * random() - 1) * amplitude;
       } else if (mode === "impulse") {
@@ -176,6 +108,15 @@ export const SourceBlock: Component<{
       } else if (mode === "symbols") {
         if (!(i % interval) && i >= interval && i + interval < length) {
           output[i] = random() < 0.5 ? -amplitude : +amplitude;
+        }
+      } else if (mode === "psk") {
+        output[i] = Math.sin((2 * Math.PI * i) / interval + phase) * amplitude;
+
+        if (Math.round(i % interval) === Math.round(interval / 2)) {
+          // TODO: Extract PSK into a modulator block and parameterize everything.
+          // TODO: Adding the delta to PSK seems to greatly increase the sidebands.
+          const symbols = [-0.25, 0.25];
+          phase = symbols[Math.floor(random() * symbols.length)] * Math.PI;
         }
       }
     }
@@ -193,9 +134,9 @@ export const SourceBlock: Component<{
         Source
         <span class="extra">
           : Generate {props.state[0].mode} with amplitude {props.state[0].amplitude.toFixed(1)}
-          {["sine", "symbols"].includes(props.state[0].mode) && (
+          {["sine", "symbols", "psk"].includes(props.state[0].mode) && (
             <>
-              {" and interval "}
+              {", interval "}
               {props.state[0].interval}
             </>
           )}
@@ -206,7 +147,7 @@ export const SourceBlock: Component<{
           <label>
             {"Generate "}
             <Select
-              options={["sine", "noise", "impulse", "symbols"]}
+              options={["sine", "noise", "impulse", "symbols", "psk"]}
               getValue={() => props.state[0].mode}
               setValue={(v) => props.state[1]("mode", v)}
             />
@@ -217,21 +158,21 @@ export const SourceBlock: Component<{
               onChange={setValueAsNumberWhenValid(props.state[1], "amplitude")}
               type="number"
               value="1.0"
-              min="0.1"
+              min="0.0"
               max="1.0"
-              step="0.05"
+              step="0.01"
               required
             />
           </label>
-          {["sine", "symbols"].includes(props.state[0].mode) && (
+          {["sine", "symbols", "psk"].includes(props.state[0].mode) && (
             <label>
               {"and interval "}
               <input
                 onChange={setValueAsNumberWhenValid(props.state[1], "interval")}
                 type="number"
                 value={props.state[0].interval}
-                min="4"
-                max="200"
+                min="1"
+                max="2048"
                 step="1"
                 required
               />
@@ -242,7 +183,9 @@ export const SourceBlock: Component<{
           state={createStore(props.state[0].viewer)}
           inputs={{ output }}
           interval={
-            ["sine", "symbols"].includes(props.state[0].mode) ? props.state[0].interval : undefined
+            ["sine", "symbols", "psk"].includes(props.state[0].mode)
+              ? props.state[0].interval
+              : undefined
           }
         />
       </div>
@@ -429,6 +372,14 @@ export const ViewerPane: Component<{
         g.stroke();
       }
 
+      {
+        g.beginPath();
+        g.moveTo(0, height / 2);
+        g.lineTo(width, height / 2);
+        g.strokeStyle = "#0008";
+        g.stroke();
+      }
+
       // Show the maximum value and X scale.
       g.textAlign = "right";
       g.fillText(`max = ${max.toFixed(3)}`, width - 2, 2);
@@ -555,7 +506,10 @@ export interface FilterBlockState {
     | "truncated rrc"
     | "windowed rrc"
     | "truncated rrc twice"
-    | "windowed rrc twice";
+    | "windowed rrc twice"
+    | "time causal kernel"
+    | "time causal band pass"
+    | "time causal gabor";
   interval: number;
   rolloff: number;
   radius: number;
@@ -567,19 +521,6 @@ export const FilterBlock: Component<{
   input: Float32Array | undefined;
   setOutput: (value: Float32Array | undefined) => void;
 }> = (props) => {
-  /*  const [state, setState] = createStore({
-    mode: "windowed sinc" as
-      | "truncated sinc"
-      | "windowed sinc"
-      | "truncated rrc"
-      | "windowed rrc"
-      | "truncated rrc twice"
-      | "windowed rrc twice",
-    interval: 32,
-    rolloff: 0.5,
-    radius: 256,
-  });*/
-
   const filters = {
     "truncated sinc": createSincFilter,
     "windowed sinc": createWindowedSincFilter,
@@ -597,6 +538,48 @@ export const FilterBlock: Component<{
         return filter(filter(input), output);
       };
     },
+    "time causal kernel": (options: { interval: number; radius: number }) => {
+      const filter = createLindebergTimeCausalFilter({ interval: options.radius });
+      return (input: Float32Array, output?: Float32Array<ArrayBuffer>) => {
+        const length = input.length;
+        output ??= new Float32Array(length);
+        for (let i = 0; i < length; i++) {
+          output[i] = filter(input[i]);
+        }
+        return output;
+      };
+    },
+    "time causal band pass": (options: RrcFilterOptions) => {
+      const hiFilter = createLindebergTimeCausalFilter({ interval: options.interval });
+      const loFilter = createLindebergTimeCausalFilter({ interval: options.radius });
+      return (input: Float32Array) => {
+        const length = input.length;
+        const output = new Float32Array(length);
+        for (let i = 0; i < length; i++) {
+          const hi = hiFilter(input[i]);
+          const lo = loFilter(input[i]);
+          output[i] = hi - lo;
+        }
+        return output;
+      };
+    },
+    "time causal gabor": (options: { interval: number; radius: number }) => {
+      const { interval, radius } = options;
+      const iFilter = createLindebergTimeCausalFilter({ interval: radius });
+      const qFilter = createLindebergTimeCausalFilter({ interval: radius });
+      return (input: Float32Array) => {
+        const length = input.length;
+
+        const output = new Float32Array(length);
+        for (let i = 0; i < length; i++) {
+          const angle = (2 * Math.PI * i) / interval;
+          const iValue = iFilter(input[i] * Math.sin(angle));
+          const qValue = qFilter(input[i] * Math.cos(angle));
+          output[i] = Math.atan2(iValue, qValue);
+        }
+        return output;
+      };
+    },
   };
 
   const createFilter = () => {
@@ -604,7 +587,7 @@ export const FilterBlock: Component<{
     return filters[mode]?.({ interval, rolloff, radius });
   };
 
-  const output = createMemo(() => {
+  const getOutput = createMemo(() => {
     const input = props.input;
     if (!input) return undefined;
 
@@ -612,7 +595,7 @@ export const FilterBlock: Component<{
   });
 
   createEffect(() => {
-    props.setOutput(output());
+    props.setOutput(getOutput());
   });
 
   return (
@@ -635,6 +618,9 @@ export const FilterBlock: Component<{
                 "windowed rrc",
                 "truncated rrc twice",
                 "windowed rrc twice",
+                "time causal kernel",
+                "time causal band pass",
+                "time causal gabor",
               ]}
               getValue={() => props.state[0].mode}
               setValue={(v) => props.state[1]("mode", v)}
@@ -646,8 +632,8 @@ export const FilterBlock: Component<{
               onChange={setValueAsNumberWhenValid(props.state[1], "interval")}
               type="number"
               value={props.state[0].interval}
-              min="4"
-              max="200"
+              min="1"
+              max="2048"
               step="1"
               required
             />
@@ -661,7 +647,7 @@ export const FilterBlock: Component<{
                 value={props.state[0].rolloff}
                 min="0"
                 max="1"
-                step="0.05"
+                step="0.01"
                 required
               />
             </label>
@@ -672,8 +658,8 @@ export const FilterBlock: Component<{
               onChange={setValueAsNumberWhenValid(props.state[1], "radius")}
               type="number"
               value={props.state[0].radius}
-              min="8"
-              max="1024"
+              min="1"
+              max="4096"
               step="1"
               required
             />
@@ -681,7 +667,7 @@ export const FilterBlock: Component<{
         </form>
         <ViewerPane
           state={createStore(props.state[0].viewer)}
-          inputs={{ output, filter: () => (createFilter() as any)?.coeffs }}
+          inputs={{ output: () => getOutput(), filter: () => (createFilter() as any)?.coeffs }}
           interval={props.state[0].interval}
         />
       </div>

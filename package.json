@@ -23,6 +23,7 @@
     "solid-js": "^1.9.13"
   },
   "devDependencies": {
+    "@types/audioworklet": "^0.0.100",
     "oxfmt": "^0.49.0",
     "oxlint": "^1.64.0",
     "vite": "^8.0.12",
