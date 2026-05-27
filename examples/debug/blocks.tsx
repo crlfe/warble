@@ -9,7 +9,7 @@ import {
   onCleanup,
   type Setter,
 } from "solid-js";
-import { createStore, type SetStoreFunction } from "solid-js/store";
+import { createStore, StoreReturn, type SetStoreFunction } from "solid-js/store";
 
 import {
   assertNotNull,
@@ -147,17 +147,19 @@ export const pointerEmulateWheel = (target: HTMLElement, scale = 4): void => {
   });
 };
 
+export interface SourceBlockState {
+  mode: "sine" | "noise" | "impulse" | "symbols";
+  amplitude: number;
+  interval: number;
+  viewer: ViewerPaneState;
+}
+
 export const SourceBlock: Component<{
+  state: StoreReturn<SourceBlockState>;
   setOutput: (output: Float32Array | undefined) => void;
 }> = (props) => {
-  const [state, setState] = createStore({
-    mode: "symbols" as "sine" | "noise" | "impulse" | "symbols",
-    amplitude: 1.0,
-    interval: 32,
-  });
-
   const output = createMemo(() => {
-    const { mode, amplitude, interval } = state;
+    const { mode, amplitude, interval } = props.state[0];
 
     const length = 16 * 1024;
     const random = createInsecurePRNG(12345);
@@ -190,11 +192,11 @@ export const SourceBlock: Component<{
       <summary>
         Source
         <span class="extra">
-          : Generate {state.mode} with amplitude {state.amplitude.toFixed(1)}
-          {["sine", "symbols"].includes(state.mode) && (
+          : Generate {props.state[0].mode} with amplitude {props.state[0].amplitude.toFixed(1)}
+          {["sine", "symbols"].includes(props.state[0].mode) && (
             <>
               {" and interval "}
-              {state.interval}
+              {props.state[0].interval}
             </>
           )}
         </span>
@@ -205,14 +207,14 @@ export const SourceBlock: Component<{
             {"Generate "}
             <Select
               options={["sine", "noise", "impulse", "symbols"]}
-              getValue={() => state.mode}
-              setValue={(v) => setState("mode", v)}
+              getValue={() => props.state[0].mode}
+              setValue={(v) => props.state[1]("mode", v)}
             />
           </label>
           <label>
             {"with amplitude "}
             <input
-              onChange={setValueAsNumberWhenValid(setState, "amplitude")}
+              onChange={setValueAsNumberWhenValid(props.state[1], "amplitude")}
               type="number"
               value="1.0"
               min="0.1"
@@ -221,13 +223,13 @@ export const SourceBlock: Component<{
               required
             />
           </label>
-          {["sine", "symbols"].includes(state.mode) && (
+          {["sine", "symbols"].includes(props.state[0].mode) && (
             <label>
               {"and interval "}
               <input
-                onChange={setValueAsNumberWhenValid(setState, "interval")}
+                onChange={setValueAsNumberWhenValid(props.state[1], "interval")}
                 type="number"
-                value={state.interval}
+                value={props.state[0].interval}
                 min="4"
                 max="200"
                 step="1"
@@ -237,44 +239,54 @@ export const SourceBlock: Component<{
           )}
         </form>
         <ViewerPane
+          state={createStore(props.state[0].viewer)}
           inputs={{ output }}
-          interval={["sine", "symbols"].includes(state.mode) ? state.interval : undefined}
+          interval={
+            ["sine", "symbols"].includes(props.state[0].mode) ? props.state[0].interval : undefined
+          }
         />
       </div>
     </details>
   );
 };
 
+export interface ViewerPaneState {
+  showing: boolean;
+  mode: "amplitude" | "frequency";
+  inputName: string;
+  frequencyX: "log" | "linear";
+}
+
+export const getDefaultViewerPaneState = (): ViewerPaneState => ({
+  showing: true,
+  mode: "amplitude",
+  inputName: "output",
+  frequencyX: "log",
+});
+
 export const ViewerPane: Component<{
+  state: StoreReturn<ViewerPaneState>;
   open?: boolean;
   inputs: Record<string, () => Float32Array | undefined>;
   interval?: number;
 }> = (props) => {
-  const [getShowing, setShowing] = createSignal(true);
-  const [getMode, setMode] = createSignal<"amplitude" | "frequency">("amplitude");
-  const [getInputName, setInputName] = createSignal<string>();
-  const [getXScale, setXScale] = createSignal<"log" | "linear">("log");
   const [getCanvasInfo, setCanvas] = createCanvas2DInfo();
 
   let lastCanvas: HTMLCanvasElement | undefined;
 
   createEffect(() => {
-    setShowing(props.open ?? true);
+    props.state[1]("showing", props.open ?? true);
   });
 
   createEffect(() => {
     const names = Object.keys(props.inputs);
-    if (!names.length) {
-      setInputName(undefined);
-    } else {
-      setInputName(names[0]);
-    }
+    props.state[1]("inputName", names[0] ?? "");
   });
 
   createEffect(() => {
-    if (!getShowing()) return;
+    if (!props.state[0].showing) return;
 
-    const mode = getMode();
+    const mode = props.state[0].mode;
 
     const info = getCanvasInfo();
     if (!info) return;
@@ -301,7 +313,7 @@ export const ViewerPane: Component<{
 
     g.clearRect(0, 0, width, height);
 
-    const input = props.inputs[getInputName() ?? ""]?.();
+    const input = props.inputs[props.state[0].inputName]?.();
     if (!input) {
       printError("no data available");
       return;
@@ -379,7 +391,7 @@ export const ViewerPane: Component<{
 
       const getXForFreqIndex = (index: number) => {
         let x;
-        if (getXScale() === "log") {
+        if (props.state[0].frequencyX === "log") {
           const base = 64;
           x = (Math.log2(1 + ((base - 1) * index) / freq.length) / Math.log2(base)) * width;
         } else {
@@ -445,7 +457,7 @@ export const ViewerPane: Component<{
   const onWheel = (event: WheelEvent & { currentTarget: HTMLElement }) => {
     // TODO: Handle non-pixel-scale events.
 
-    const mode = getMode();
+    const mode = props.state[0].mode;
 
     const scroll = mode === "amplitude" ? getTimeShared() : getFreqShared();
 
@@ -486,7 +498,11 @@ export const ViewerPane: Component<{
       return (
         <>
           {"of "}
-          <Select options={names} getValue={getInputName} setValue={setInputName} />
+          <Select
+            options={names}
+            getValue={() => props.state[0].inputName}
+            setValue={(value) => props.state[1]("inputName", value)}
+          />
         </>
       );
     }
@@ -495,28 +511,32 @@ export const ViewerPane: Component<{
   return (
     <>
       <form class="hbox">
-        <input type="checkbox" checked onChange={(event) => setShowing(event.target.checked)} />
+        <input
+          type="checkbox"
+          checked
+          onChange={(event) => props.state[1]("showing", event.target.checked)}
+        />
         <label>
           {"Show "}
           <Select
             options={["amplitude", "frequency"]}
-            getValue={() => getMode()}
-            setValue={(v) => setMode(v)}
+            getValue={() => props.state[0].mode}
+            setValue={(v) => props.state[1]("mode", v)}
           />
         </label>
         {inputSelector()}
-        {getMode() === "frequency" && (
+        {props.state[0].mode === "frequency" && (
           <label>
             {"with X "}
             <Select
               options={["linear", "log"]}
-              getValue={() => getXScale()}
-              setValue={(v) => setXScale(v)}
+              getValue={() => props.state[0].frequencyX}
+              setValue={(v) => props.state[1]("frequencyX", v)}
             />
           </label>
         )}
       </form>
-      {getShowing() && (
+      {props.state[0].showing && (
         <canvas
           style="display:block;border:1px solid #000;width:100%;height:258px"
           ref={setCanvas}
@@ -527,11 +547,27 @@ export const ViewerPane: Component<{
   );
 };
 
+export interface FilterBlockState {
+  mode:
+    | "windowed sinc"
+    | "truncated sinc"
+    | "windowed sinc"
+    | "truncated rrc"
+    | "windowed rrc"
+    | "truncated rrc twice"
+    | "windowed rrc twice";
+  interval: number;
+  rolloff: number;
+  radius: number;
+  viewer: ViewerPaneState;
+}
+
 export const FilterBlock: Component<{
+  state: StoreReturn<FilterBlockState>;
   input: Float32Array | undefined;
   setOutput: (value: Float32Array | undefined) => void;
 }> = (props) => {
-  const [state, setState] = createStore({
+  /*  const [state, setState] = createStore({
     mode: "windowed sinc" as
       | "truncated sinc"
       | "windowed sinc"
@@ -542,7 +578,7 @@ export const FilterBlock: Component<{
     interval: 32,
     rolloff: 0.5,
     radius: 256,
-  });
+  });*/
 
   const filters = {
     "truncated sinc": createSincFilter,
@@ -564,7 +600,7 @@ export const FilterBlock: Component<{
   };
 
   const createFilter = () => {
-    const { mode, interval, radius, rolloff } = state;
+    const { mode, interval, radius, rolloff } = props.state[0];
     return filters[mode]?.({ interval, rolloff, radius });
   };
 
@@ -584,7 +620,7 @@ export const FilterBlock: Component<{
       <summary>
         Filter
         <span class="extra">
-          : Apply {state.mode} with interval {state.interval}
+          : Apply {props.state[0].mode} with interval {props.state[0].interval}
         </span>
       </summary>
       <div class="vbox">
@@ -600,29 +636,29 @@ export const FilterBlock: Component<{
                 "truncated rrc twice",
                 "windowed rrc twice",
               ]}
-              getValue={() => state.mode}
-              setValue={(v) => setState("mode", v)}
+              getValue={() => props.state[0].mode}
+              setValue={(v) => props.state[1]("mode", v)}
             />
           </label>
           <label>
             {"with interval "}
             <input
-              onChange={setValueAsNumberWhenValid(setState, "interval")}
+              onChange={setValueAsNumberWhenValid(props.state[1], "interval")}
               type="number"
-              value={state.interval}
+              value={props.state[0].interval}
               min="4"
               max="200"
               step="1"
               required
             />
           </label>
-          {state.mode.match(/\brrc\b/) && (
+          {props.state[0].mode.match(/\brrc\b/) && (
             <label>
               {", rolloff"}{" "}
               <input
-                onChange={setValueAsNumberWhenValid(setState, "rolloff")}
+                onChange={setValueAsNumberWhenValid(props.state[1], "rolloff")}
                 type="number"
-                value={state.rolloff}
+                value={props.state[0].rolloff}
                 min="0"
                 max="1"
                 step="0.05"
@@ -633,9 +669,9 @@ export const FilterBlock: Component<{
           <label>
             {"and radius "}
             <input
-              onChange={setValueAsNumberWhenValid(setState, "radius")}
+              onChange={setValueAsNumberWhenValid(props.state[1], "radius")}
               type="number"
-              value={state.radius}
+              value={props.state[0].radius}
               min="8"
               max="1024"
               step="1"
@@ -644,8 +680,9 @@ export const FilterBlock: Component<{
           </label>
         </form>
         <ViewerPane
+          state={createStore(props.state[0].viewer)}
           inputs={{ output, filter: () => (createFilter() as any)?.coeffs }}
-          interval={state.interval}
+          interval={props.state[0].interval}
         />
       </div>
     </details>
